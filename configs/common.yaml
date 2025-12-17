@@ -1,0 +1,22 @@
+seed: 42
+
+device:
+  type: cpu   # cuda | mps | cpu
+
+output:
+  dir: ${hydra:runtime.cwd}/outputs  # 使用原始 cwd，避免 Hydra 切换工作目录后相对路径重复
+  exp_name: ${task_name}  # 默认用任务名作为实验名，可用 CLI 覆盖
+
+train:
+  epochs: 5
+  log_interval: 20   # ✅ “每 20 step 打一次日志/打点”就是这里控制
+
+logging:
+  tracker:
+    backend: swanlab    # wandb | swanlab | none
+    enable: false       # 示例默认关闭第三方 tracker，避免环境缺依赖
+    init:
+      project: ballista
+      experiment_name: ${output.exp_name}
+      logdir: ${output.dir}/${output.exp_name}/swanlog
+      mode: cloud

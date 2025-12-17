@@ -1,0 +1,26 @@
+task_name: linreg
+
+dataset:
+  num_samples: 512
+  input_dim: 1
+  weight: [2.5]   # 可改成任意序列，或直接删掉让数据集随机采样 w/b
+  bias: -1.0
+  noise_std: 0.2
+  batch_size: 64
+  num_workers: 0
+
+model:
+  input_dim: ${dataset.input_dim}
+  output_dim: 1
+
+optimizer:
+  type: adamw
+  lr: 0.05
+  weight_decay: 0.0
+
+train:
+  epochs: 5000
+  log_interval: 10
+
+output:
+  exp_name: linreg_demo

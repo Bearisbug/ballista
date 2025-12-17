@@ -1,0 +1,12 @@
+defaults:
+  - common
+  - task@_global_: linreg      # 默认跑一个线性回归 demo，可用 task=traj 等覆盖
+  - _self_
+
+hydra:
+  run:
+    # 让 Hydra 的工作目录与我们自己的 output 目录一致
+    dir: ${output.dir}/${output.exp_name}
+  sweep:
+    dir: ${output.dir}/multirun/${output.exp_name}
+    subdir: ${hydra.job.num}

@@ -1,0 +1,36 @@
+task_name: traj
+
+dataset:
+  type: synthetic_traj
+  num_samples: 1000
+  past_len: 12
+  future_len: 1
+  noise_std: 0.01
+  batch_size: 32
+  num_workers: 0
+
+task:
+  output_key: traj   # ✅ 任务语义：用哪个 head 的输出算 loss
+
+model:
+  name: multi_head
+  head_keys: ["traj"]
+  backbone:
+    name: gru_backbone
+    input_dim: 2
+    hidden_dim: 64
+    num_layers: 1
+  neck:
+    name: identity_neck
+  heads:
+    - name: traj_reg_head
+      in_dim: 64
+      future_len: 1
+
+loss:
+  name: mse_loss      # 可选：不想 registry loss 就删掉这一段，在 task 里直接 nn.MSELoss()
+
+optimizer:
+  type: adamw
+  lr: 0.001
+  weight_decay: 0.0001

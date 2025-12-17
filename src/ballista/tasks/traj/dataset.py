@@ -302,6 +302,46 @@ class TrajectoryDataset(Dataset):
         return self._clips[ci].source
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """
+        返回一个时序样本（滑窗序列），各字段含义如下：
+
+        - images: torch.FloatTensor, shape = [T, 3, H, W]
+            时序图像序列（RGB），已 resize 到统一尺寸 (H, W)，
+            数值范围 [0, 1]，坐标系为左上角原点，x 向右，y 向下。
+
+        - heatmaps: torch.FloatTensor, shape = [T, 1, H, W]
+            与 images 对齐的高斯热图序列。
+            当目标可见时，在 (x_px, y_px) 处生成高斯响应；
+            当目标不可见时为全零。
+
+        - coords_px: torch.FloatTensor, shape = [T, 2]
+            目标在 resize 后图像坐标系中的像素坐标 (x_px, y_px)。
+            对于不可见帧，坐标为 (0, 0)，需结合 visibility 使用。
+
+        - coords_norm: torch.FloatTensor, shape = [T, 2]
+            归一化坐标 (x_norm, y_norm)，定义为：
+                x_norm = x_px / (W - 1)
+                y_norm = y_px / (H - 1)
+            数值范围约为 [0, 1]，适用于分辨率无关的回归或时序建模。
+
+        - visibility: torch.LongTensor, shape = [T]
+            目标可见性标志：
+                1 表示目标可见
+                0 表示目标不可见 / 未标注
+            通常作为 loss mask 使用。
+
+        - source: str
+            数据来源标识，取值为：
+                "reality"   真实数据
+                "synthesis" 合成数据
+
+        - clip_id: str
+            当前序列所属的 clip 标识（目录名，如 "001"）。
+
+        - frame_ids: List[str]
+            当前序列中每一帧对应的原始图像文件名，
+            长度为 T，与 images / heatmaps 的时间维一一对应。
+        """
         ci, start = self._index[idx]
         clip = self._clips[ci]
         frames = clip.frame_files[start : start + self.seq_len]

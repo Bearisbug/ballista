@@ -5,9 +5,8 @@ from torch.utils.data import DataLoader
 
 import ballista.models  # 触发注册
 
-from ballista.models.build import build_arch, build_loss
+from ballista.models.build import build_loss, build_model
 from ballista.tasks.base import BaseTask
-from ballista.tasks.traj.dataset import TrajectoryDataset
 from ballista.tasks.traj.transforms import build_traj_transforms
 
 
@@ -16,8 +15,6 @@ class TrajTask(BaseTask):
         self.cfg = cfg
         self.device = device
 
-        self.output_key = (cfg.get("task", {}) or {}).get("output_key", "head0")
-
         # 可选：走 registry loss；不想就直接 self.loss_fn = nn.MSELoss()
         if "loss" in cfg and cfg["loss"] is not None:
             self.loss_fn = build_loss(cfg["loss"])
@@ -25,24 +22,24 @@ class TrajTask(BaseTask):
             self.loss_fn = nn.MSELoss()
 
     def build_model(self, cfg: Dict[str, Any]) -> nn.Module:
-        model = build_arch(cfg["model"])
+        model = build_model(cfg["model"])
         return model.to(self.device)
 
-    def build_dataloader(self, cfg: Dict[str, Any], split: str):
-        dcfg = cfg["dataset"]
-        ds = SyntheticTrajectoryDataset(
-            num_samples=int(dcfg["num_samples"]),
-            past_len=int(dcfg["past_len"]),
-            future_len=int(dcfg["future_len"]),
-            transform=build_traj_transforms(noise_std=float(dcfg.get("noise_std", 0.0))),
-        )
-        return DataLoader(
-            ds,
-            batch_size=int(dcfg["batch_size"]),
-            shuffle=(split == "train"),
-            num_workers=int(dcfg.get("num_workers", 0)),
-            drop_last=(split == "train"),
-        )
+    # def build_dataloader(self, cfg: Dict[str, Any], split: str):
+    #     dcfg = cfg["dataset"]
+    #     ds = SyntheticTrajectoryDataset(
+    #         num_samples=int(dcfg["num_samples"]),
+    #         past_len=int(dcfg["past_len"]),
+    #         future_len=int(dcfg["future_len"]),
+    #         transform=build_traj_transforms(noise_std=float(dcfg.get("noise_std", 0.0))),
+    #     )
+    #     return DataLoader(
+    #         ds,
+    #         batch_size=int(dcfg["batch_size"]),
+    #         shuffle=(split == "train"),
+    #         num_workers=int(dcfg.get("num_workers", 0)),
+    #         drop_last=(split == "train"),
+    #     )
 
     def build_optimizer(self, cfg: Dict[str, Any], model: nn.Module):
         ocfg = cfg["optimizer"]
@@ -59,8 +56,7 @@ class TrajTask(BaseTask):
         past = batch["past"].to(self.device).float()
         future = batch["future"].to(self.device).float()
 
-        out = model(past)               # dict
-        pred = out[self.output_key]
+        pred = model(past)
         loss = self.loss_fn(pred, future)
 
         return loss, {"loss": float(loss.detach().cpu())}

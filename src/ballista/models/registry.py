@@ -20,8 +20,5 @@ class Registry:
         return self._items[name]
 
 
-BACKBONES = Registry("backbones")
-NECKS = Registry("necks")
-HEADS = Registry("heads")
+MODELS = Registry("models")
 LOSSES = Registry("losses")
-ARCHS = Registry("archs")

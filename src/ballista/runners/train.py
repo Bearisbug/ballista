@@ -4,8 +4,8 @@ from typing import Any, Dict
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from ballista.core.seed import set_seed
-from ballista.core.logging import setup_experiment_logging
+from ballista.utils.seed import set_seed
+from ballista.utils.logging import setup_experiment_logging
 from ballista.engine.trainer import Trainer
 from ballista.tasks.linreg.task import LinearRegressionTask
 from ballista.tasks.traj.task import TrajTask

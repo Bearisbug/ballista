@@ -1,5 +1,6 @@
 import torch.nn as nn
-from ballista.models.registry import LOSSES
+
+from ballista.core.registry import LOSSES
 
 
 @LOSSES.register("mse_loss")

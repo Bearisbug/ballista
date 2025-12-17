@@ -3,9 +3,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-import ballista.models  # 触发注册
-
-from ballista.models.build import build_loss, build_model
+import ballista.core  
+from ballista.core.build import build_loss, build_model
 from ballista.tasks.base import BaseTask
 from ballista.tasks.traj.transforms import build_traj_transforms
 

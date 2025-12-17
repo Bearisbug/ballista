@@ -1,6 +1,8 @@
 from typing import Any, Dict
+
 import torch.nn as nn
-from ballista.models.registry import LOSSES, MODELS
+
+from ballista.core.registry import LOSSES, MODELS
 
 
 def _build_from_cfg(cfg: Dict[str, Any], registry) -> Any:
@@ -10,6 +12,7 @@ def _build_from_cfg(cfg: Dict[str, Any], registry) -> Any:
     cls = registry.get(name)
     kwargs = {k: v for k, v in cfg.items() if k != "name"}
     return cls(**kwargs)
+
 
 def build_model(cfg: Dict[str, Any]) -> nn.Module:
     return _build_from_cfg(cfg, MODELS)

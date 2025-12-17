@@ -15,8 +15,8 @@ from rich.progress import (
 )
 from rich.table import Column
 
-from ballista.core.checkpoint import save_checkpoint
-from ballista.core.logging import RunLogger
+from ballista.utils.checkpoint import save_checkpoint
+from ballista.utils.logging import RunLogger
 
 
 class Trainer:

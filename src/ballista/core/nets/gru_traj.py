@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from ballista.models.registry import MODELS
+from ballista.core.registry import MODELS
 
 
 @MODELS.register("gru_traj")

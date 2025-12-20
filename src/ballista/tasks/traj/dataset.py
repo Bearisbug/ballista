@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import torch
@@ -19,13 +19,19 @@ def _get_pil_image():
     try:
         from PIL import Image  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("需要安装 pillow 才能读取 png 图片：pip install pillow") from e
+        raise RuntimeError("需要安装 pillow 才能读取图片：pip install pillow") from e
     _PIL_Image = Image
     return _PIL_Image
 
 
 DatasetMode = Literal["reality", "synthesis", "both"]
 
+# 支持的图片后缀
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
+
+# 同一帧号出现多个文件时的优先级（越靠前越优先）
+_SUFFIX_PRIORITY = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"]
+_SUFFIX_PRIORITY_MAP = {s: i for i, s in enumerate(_SUFFIX_PRIORITY)}
 
 @dataclass(frozen=True)
 class FrameLabel:
@@ -39,8 +45,9 @@ class ClipIndex:
     source: Literal["reality", "synthesis"]
     clip_dir: Path
     frames_dir: Path
-    frame_files: List[str]
-    labels_by_frame: Dict[str, FrameLabel]
+    frame_files: List[str]  # 真实存在的图片文件名（可能是 jpg/png/...）
+    labels_by_frame: Dict[str, FrameLabel]  # key = frame_files 中的文件名
+    frame_idx_to_name: Dict[int, str]  # key = 帧号(int), value = 对应真实文件名
     orig_w: int
     orig_h: int
 
@@ -49,10 +56,60 @@ def _is_clip_dir(p: Path) -> bool:
     return p.is_dir() and p.name.isdigit() and len(p.name) == 3
 
 
-def _sorted_png_files(frames_dir: Path) -> List[str]:
-    files = [x.name for x in frames_dir.iterdir() if x.is_file() and x.suffix.lower() == ".png"]
-    files.sort()
-    return files
+def _parse_frame_index(s: str) -> Optional[int]:
+    """
+    从字符串解析帧号：
+    - "00000012" -> 12
+    - "00000012.jpg" -> 12
+    - "/a/b/00000012.png" -> 12
+    """
+    ss = (s or "").strip()
+    if not ss:
+        return None
+    name = Path(ss).name
+    stem = Path(name).stem
+    if stem.isdigit():
+        return int(stem)
+    return None
+
+
+def _list_frame_files(frames_dir: Path) -> Tuple[List[str], Dict[int, str]]:
+    """
+    扫描 frames_dir 下的图片文件，支持多种后缀。
+    - 若文件名 stem 是纯数字，则按帧号排序，并且对同一帧号去重（按后缀优先级挑一个）
+    - 非数字命名的图片会被保留（按字典序放在最后）
+    """
+    files = [x.name for x in frames_dir.iterdir() if x.is_file() and x.suffix.lower() in _IMAGE_SUFFIXES]
+    if not files:
+        return [], {}
+
+    by_idx: Dict[int, List[str]] = {}
+    others: List[str] = []
+
+    for fn in files:
+        idx = _parse_frame_index(fn)
+        if idx is None:
+            others.append(fn)
+        else:
+            by_idx.setdefault(idx, []).append(fn)
+
+    # 为每个 idx 选一个最优后缀文件
+    frame_idx_to_name: Dict[int, str] = {}
+    for idx, fns in by_idx.items():
+        def _rank(name: str) -> Tuple[int, str]:
+            suf = Path(name).suffix.lower()
+            pri = _SUFFIX_PRIORITY_MAP.get(suf, 10_000)
+            return pri, name
+
+        best = sorted(fns, key=_rank)[0]
+        frame_idx_to_name[idx] = best
+
+    # 按帧号顺序输出
+    chosen = [frame_idx_to_name[i] for i in sorted(frame_idx_to_name.keys())]
+    others.sort()
+    frame_files = chosen + others
+
+    return frame_files, frame_idx_to_name
 
 
 def _read_image_size(path: Path) -> Tuple[int, int]:
@@ -115,23 +172,10 @@ def _sanitize_row(row: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
-def _frame_id_to_png_name(frame_id: str) -> str:
-    s = (frame_id or "").strip()
-    if not s:
-        return ""
-    name = Path(s).name
-    # 允许 frame_id 只给数字：00000000
-    stem = Path(name).stem
-    if stem.isdigit():
-        return f"{int(stem):08d}.png"
-    if not name.lower().endswith(".png"):
-        return name + ".png"
-    return name
-
-
 def _read_reality_annotations(
     csv_path: Path,
     frame_files: List[str],
+    frame_idx_to_name: Dict[int, str],
     orig_w: int,
     orig_h: int,
     out_w: int,
@@ -143,7 +187,6 @@ def _read_reality_annotations(
     scale_x = out_w / float(orig_w)
     scale_y = out_h / float(orig_h)
 
-    # utf-8-sig 可以自动吞掉 BOM
     with csv_path.open("r", newline="", encoding="utf-8-sig", errors="replace") as f:
         reader = csv.DictReader(f)
         for raw in reader:
@@ -153,8 +196,8 @@ def _read_reality_annotations(
             if not frame_str.isdigit():
                 continue
             frame_idx = int(frame_str)
-            fname = f"{frame_idx:08d}.png"
-            if fname not in frame_set:
+            fname = frame_idx_to_name.get(frame_idx)
+            if not fname or fname not in frame_set:
                 continue
 
             vis = int(float(row.get("Visibility", row.get("visibility", "1")) or 0))
@@ -174,6 +217,7 @@ def _read_reality_annotations(
 def _read_synthesis_annotations(
     csv_path: Path,
     frame_files: List[str],
+    frame_idx_to_name: Dict[int, str],
     orig_w: int,
     orig_h: int,
     out_w: int,
@@ -190,7 +234,11 @@ def _read_synthesis_annotations(
         for raw in reader:
             row = _sanitize_row(raw)
 
-            fname = _frame_id_to_png_name(row.get("frame_id", row.get("Frame", row.get("frame", ""))))
+            idx = _parse_frame_index(row.get("frame_id", row.get("Frame", row.get("frame", ""))))
+            if idx is None:
+                continue
+
+            fname = frame_idx_to_name.get(idx)
             if not fname or fname not in frame_set:
                 continue
 
@@ -225,16 +273,16 @@ def _build_clip_indices(root: Path, source: Literal["reality", "synthesis"], out
         if not frames_dir.exists() or not ann_path.exists():
             continue
 
-        frame_files = _sorted_png_files(frames_dir)
+        frame_files, frame_idx_to_name = _list_frame_files(frames_dir)
         if len(frame_files) == 0:
             continue
 
         orig_w, orig_h = _read_image_size(frames_dir / frame_files[0])
 
         if source == "reality":
-            labels = _read_reality_annotations(ann_path, frame_files, orig_w, orig_h, out_w, out_h)
+            labels = _read_reality_annotations(ann_path, frame_files, frame_idx_to_name, orig_w, orig_h, out_w, out_h)
         else:
-            labels = _read_synthesis_annotations(ann_path, frame_files, orig_w, orig_h, out_w, out_h)
+            labels = _read_synthesis_annotations(ann_path, frame_files, frame_idx_to_name, orig_w, orig_h, out_w, out_h)
 
         clips.append(
             ClipIndex(
@@ -243,6 +291,7 @@ def _build_clip_indices(root: Path, source: Literal["reality", "synthesis"], out
                 frames_dir=frames_dir,
                 frame_files=frame_files,
                 labels_by_frame=labels,
+                frame_idx_to_name=frame_idx_to_name,
                 orig_w=orig_w,
                 orig_h=orig_h,
             )

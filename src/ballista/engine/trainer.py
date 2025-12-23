@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -18,12 +20,36 @@ from rich.table import Column
 from ballista.utils.checkpoint import save_checkpoint
 from ballista.utils.logging import RunLogger
 
+def _make_stdio_nonblocking(drop_on_block: bool = True) -> None:
+    import os, sys
+    for s in (sys.stdout, sys.stderr):
+        try: os.set_blocking(s.fileno(), False)
+        except Exception: pass
+
+    class _W:
+        def __init__(self, s): self.s = s
+        def __getattr__(self, n): return getattr(self.s, n)
+        def isatty(self):
+            try: return self.s.isatty()
+            except Exception: return False
+        def write(self, d):
+            try: return self.s.write(d)
+            except BlockingIOError:
+                if drop_on_block: return 0
+                raise
+            except Exception: return 0
+        def flush(self):
+            try: self.s.flush()
+            except Exception: pass
+
+    sys.stdout, sys.stderr = _W(sys.stdout), _W(sys.stderr)
+
+_make_stdio_nonblocking(drop_on_block=True)
 
 class Trainer:
-    def __init__(self, cfg: Dict[str, Any], file_logger, console: Console, run_logger: RunLogger):
+    def __init__(self, cfg: Dict[str, Any], file_logger, console: Optional[Console], run_logger: RunLogger):
         self.cfg = cfg
         self.file_logger = file_logger
-        self.console = console
         self.run_logger = run_logger
 
         self.epochs = int(cfg["train"]["epochs"])
@@ -32,6 +58,18 @@ class Trainer:
         out_dir = Path(cfg["output"]["dir"]) / cfg["output"]["exp_name"]
         self.ckpt_dir = out_dir / "checkpoints"
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        if console is None:
+            self.console = Console(file=sys.stdout, stderr=sys.stderr)
+        else:
+            self.console = Console(
+                file=sys.stdout,
+                stderr=sys.stderr,
+                force_terminal=sys.stdout.isatty(),
+                color_system=getattr(console, "color_system", "auto"),
+                width=getattr(console, "width", None),
+                soft_wrap=getattr(console, "soft_wrap", False),
+            )
 
     def fit(self, task, model, train_loader, optimizer):
         global_step = 0
@@ -88,11 +126,8 @@ class Trainer:
                     progress.advance(task_id, 1)
 
                     if self.log_interval > 0 and (global_step % self.log_interval == 0):
-                        # 控制台：只在上方输出，不影响进度条（rich live 的特性）
                         progress.console.log(f"epoch={epoch} step={global_step} loss={loss_str}")
-                        # 文件日志
                         self.file_logger.info(f"epoch={epoch} step={global_step} loss={loss_str}")
-                        # 外部 tracker（wandb/swanlab）
                         self.run_logger.log({"train/loss": loss_val, "train/epoch": epoch}, step=global_step)
 
                 save_checkpoint(str(self.ckpt_dir / f"epoch_{epoch}.pt"), model, optimizer, epoch)
